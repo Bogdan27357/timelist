@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Таймлист — Учёт рабочего времени</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav class="sidebar">
+    <div class="sidebar-header">
+        <h2>Таймлист</h2>
+        <small>Учёт времени и аналитика</small>
+    </div>
+    <div id="ollamaStatus" class="ollama-status ollama-offline">
+        <span class="dot">&#9679;</span> <span class="nav-text">Ollama: проверка...</span>
+    </div>
+    <div class="nav-item active" data-section="dashboard">
+        <span class="icon">&#9632;</span> <span class="nav-text">Дашборд</span>
+    </div>
+    <div class="nav-item" data-section="employees">
+        <span class="icon">&#9787;</span> <span class="nav-text">Сотрудники</span>
+    </div>
+    <div class="nav-item" data-section="timesheet">
+        <span class="icon">&#9200;</span> <span class="nav-text">Табель</span>
+    </div>
+    <div class="nav-item" data-section="absences">
+        <span class="icon">&#9992;</span> <span class="nav-text">Отсутствия</span>
+    </div>
+    <div class="nav-item" data-section="calls">
+        <span class="icon">&#9742;</span> <span class="nav-text">Созвоны</span>
+    </div>
+    <div class="nav-item" data-section="calendar">
+        <span class="icon">&#9776;</span> <span class="nav-text">Календарь</span>
+    </div>
+</nav>
+
+<!-- Main content -->
+<main class="main">
+
+<!-- Dashboard -->
+<div id="dashboard" class="section active">
+    <div class="page-header">
+        <h1>Дашборд</h1>
+    </div>
+    <div class="stats-grid" id="statsGrid">
+        <div class="stat-card primary">
+            <div class="stat-label">Сотрудников</div>
+            <div class="stat-value" id="statEmployees">-</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-label">На работе сегодня</div>
+            <div class="stat-value" id="statActive">-</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-label">В отпуске</div>
+            <div class="stat-value" id="statVacation">-</div>
+        </div>
+        <div class="stat-card danger">
+            <div class="stat-label">На больничном</div>
+            <div class="stat-value" id="statSick">-</div>
+        </div>
+        <div class="stat-card info">
+            <div class="stat-label">Созвонов за месяц</div>
+            <div class="stat-value" id="statCalls">-</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-label">Проанализировано ИИ</div>
+            <div class="stat-value" id="statAnalyzed">-</div>
+        </div>
+        <div class="stat-card primary">
+            <div class="stat-label">Средн. часов сегодня</div>
+            <div class="stat-value" id="statAvgHours">-</div>
+        </div>
+    </div>
+</div>
+
+<!-- Employees -->
+<div id="employees" class="section">
+    <div class="page-header">
+        <h1>Сотрудники</h1>
+        <button class="btn btn-primary" onclick="showModal('employeeModal')">+ Добавить</button>
+    </div>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>ФИО</th><th>Должность</th><th>Отдел</th><th>Email</th><th>Телефон</th><th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="employeesTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Timesheet -->
+<div id="timesheet" class="section">
+    <div class="page-header">
+        <h1>Табель учёта рабочего времени</h1>
+        <button class="btn btn-primary" onclick="showModal('timesheetModal')">+ Запись</button>
+    </div>
+    <div class="card" style="margin-bottom:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <label>Сотрудник: <select id="tsFilterEmployee" onchange="loadTimesheet()"><option value="">Все</option></select></label>
+        <label>С: <input type="date" id="tsFilterFrom" onchange="loadTimesheet()"></label>
+        <label>По: <input type="date" id="tsFilterTo" onchange="loadTimesheet()"></label>
+    </div>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Дата</th><th>Сотрудник</th><th>Приход</th><th>Уход</th><th>Перерыв</th><th>Часов</th><th>Переработка</th><th>Примечание</th><th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="timesheetTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Absences -->
+<div id="absences" class="section">
+    <div class="page-header">
+        <h1>Отсутствия</h1>
+        <button class="btn btn-primary" onclick="showModal('absenceModal')">+ Заявка</button>
+    </div>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Сотрудник</th><th>Тип</th><th>Начало</th><th>Конец</th><th>Статус</th><th>Причина</th><th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="absencesTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Calls -->
+<div id="calls" class="section">
+    <div class="page-header">
+        <h1>Созвоны и конференции</h1>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="showModal('callModal')">+ Добавить</button>
+            <button class="btn btn-success" onclick="showModal('uploadModal')">&#8593; Загрузить транскрипт</button>
+        </div>
+    </div>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Дата</th><th>Название</th><th>Длительность</th><th>Участники</th><th>ИИ-анализ</th><th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="callsTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Calendar -->
+<div id="calendar" class="section">
+    <div class="page-header">
+        <h1>Календарь</h1>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-outline" onclick="changeMonth(-1)">&larr;</button>
+            <span id="calendarMonth" style="font-weight:600;min-width:150px;text-align:center;"></span>
+            <button class="btn btn-outline" onclick="changeMonth(1)">&rarr;</button>
+        </div>
+    </div>
+    <div class="card" id="calendarGrid" style="overflow-x:auto;"></div>
+</div>
+
+</main>
+
+<!-- Modals -->
+<!-- Employee Modal -->
+<div class="modal-overlay" id="employeeModal">
+    <div class="modal">
+        <h3>Новый сотрудник</h3>
+        <div class="form-group"><label>ФИО</label><input id="empName" required></div>
+        <div class="form-group"><label>Должность</label><input id="empPosition"></div>
+        <div class="form-group"><label>Отдел</label><input id="empDepartment"></div>
+        <div class="form-group"><label>Email</label><input id="empEmail" type="email" required></div>
+        <div class="form-group"><label>Телефон</label><input id="empPhone"></div>
+        <div class="form-group"><label>Дата приёма</label><input id="empHireDate" type="date"></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('employeeModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveEmployee()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Timesheet Modal -->
+<div class="modal-overlay" id="timesheetModal">
+    <div class="modal">
+        <h3>Запись в табель</h3>
+        <div class="form-group"><label>Сотрудник</label><select id="tsEmployee"></select></div>
+        <div class="form-group"><label>Дата</label><input id="tsDate" type="date" required></div>
+        <div class="form-group"><label>Приход</label><input id="tsClockIn" type="time"></div>
+        <div class="form-group"><label>Уход</label><input id="tsClockOut" type="time"></div>
+        <div class="form-group"><label>Перерыв (мин.)</label><input id="tsBreak" type="number" value="60"></div>
+        <div class="form-group"><label>Примечание</label><input id="tsNote"></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('timesheetModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveTimesheet()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Absence Modal -->
+<div class="modal-overlay" id="absenceModal">
+    <div class="modal">
+        <h3>Заявка на отсутствие</h3>
+        <div class="form-group"><label>Сотрудник</label><select id="absEmployee"></select></div>
+        <div class="form-group"><label>Тип</label>
+            <select id="absType">
+                <option value="vacation">Отпуск</option>
+                <option value="sick_leave">Больничный</option>
+                <option value="business_trip">Командировка</option>
+                <option value="remote">Удалёнка</option>
+                <option value="day_off">Отгул</option>
+                <option value="other">Другое</option>
+            </select>
+        </div>
+        <div class="form-group"><label>С</label><input id="absStart" type="date" required></div>
+        <div class="form-group"><label>По</label><input id="absEnd" type="date" required></div>
+        <div class="form-group"><label>Причина</label><textarea id="absReason"></textarea></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('absenceModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveAbsence()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Call Modal -->
+<div class="modal-overlay" id="callModal">
+    <div class="modal">
+        <h3>Добавить созвон</h3>
+        <div class="form-group"><label>Название</label><input id="callTitle" required></div>
+        <div class="form-group"><label>Дата и время</label><input id="callDate" type="datetime-local" required></div>
+        <div class="form-group"><label>Длительность (мин.)</label><input id="callDuration" type="number" value="30"></div>
+        <div class="form-group"><label>Участники</label><input id="callParticipants" placeholder="через запятую"></div>
+        <div class="form-group"><label>Транскрипт / заметки</label><textarea id="callTranscript" rows="6"></textarea></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('callModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveCall()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal-overlay" id="uploadModal">
+    <div class="modal">
+        <h3>Загрузить транскрипт</h3>
+        <div class="form-group"><label>Файл (.txt)</label><input id="uploadFile" type="file" accept=".txt"></div>
+        <div class="form-group"><label>Название</label><input id="uploadTitle"></div>
+        <div class="form-group"><label>Участники</label><input id="uploadParticipants"></div>
+        <div class="form-group"><label>Дата</label><input id="uploadDate" type="datetime-local"></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('uploadModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="uploadTranscript()">Загрузить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Analysis Modal -->
+<div class="modal-overlay" id="analysisModal">
+    <div class="modal" style="max-width:700px;">
+        <h3 id="analysisTitle">ИИ-анализ созвона</h3>
+        <div id="analysisContent"></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('analysisModal')">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
