@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
 from app.database import engine, Base
-from app.routers import employees, timesheet, absences, calls, dashboard
+from app.routers import employees, timesheet, absences, calls, dashboard, meetings, tasks
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -28,6 +28,8 @@ app.include_router(timesheet.router)
 app.include_router(absences.router)
 app.include_router(calls.router)
 app.include_router(dashboard.router)
+app.include_router(meetings.router)
+app.include_router(tasks.router)
 
 
 @app.get("/", response_class=HTMLResponse)

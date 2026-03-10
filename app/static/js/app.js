@@ -28,6 +28,7 @@ const API = {
 
 // ==================== Navigation ====================
 let employeesCache = [];
+let meetingsCache = [];
 
 document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -46,6 +47,8 @@ function loadSection(section) {
         case 'employees': loadEmployees(); break;
         case 'timesheet': loadTimesheet(); break;
         case 'absences': loadAbsences(); break;
+        case 'meetings': loadMeetings(); break;
+        case 'tasks': loadTasks(); break;
         case 'calls': loadCalls(); break;
         case 'calendar': loadCalendar(); break;
     }
@@ -59,7 +62,6 @@ function hideModal(id) {
     document.getElementById(id).classList.remove('active');
 }
 
-// Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', e => {
         if (e.target === overlay) overlay.classList.remove('active');
@@ -73,8 +75,9 @@ async function loadDashboard() {
     document.getElementById('statActive').textContent = stats.active_today;
     document.getElementById('statVacation').textContent = stats.on_vacation;
     document.getElementById('statSick').textContent = stats.on_sick_leave;
-    document.getElementById('statCalls').textContent = stats.total_calls_this_month;
-    document.getElementById('statAnalyzed').textContent = stats.analyzed_calls;
+    document.getElementById('statMeetings').textContent = stats.total_meetings;
+    document.getElementById('statTasks').textContent = stats.total_tasks;
+    document.getElementById('statOverdue').textContent = stats.tasks_overdue;
     document.getElementById('statAvgHours').textContent = stats.avg_hours_today;
 }
 
@@ -108,6 +111,11 @@ function populateEmployeeSelects(employees) {
     const filter = document.getElementById('tsFilterEmployee');
     if (filter) {
         filter.innerHTML = '<option value="">Все</option>' +
+            employees.map(e => `<option value="${e.id}">${esc(e.full_name)}</option>`).join('');
+    }
+    const taskAssignee = document.getElementById('taskAssignee');
+    if (taskAssignee) {
+        taskAssignee.innerHTML = '<option value="">Не назначен</option>' +
             employees.map(e => `<option value="${e.id}">${esc(e.full_name)}</option>`).join('');
     }
 }
@@ -234,6 +242,380 @@ async function deleteAbsence(id) {
     loadAbsences();
 }
 
+// ==================== Meetings (5-step 1C Timelist flow) ====================
+const TRANSCRIPTION_STATUS = {
+    pending: { label: 'Ожидает', badge: 'badge-neutral' },
+    processing: { label: 'Расшифровка...', badge: 'badge-warning' },
+    done: { label: 'Готова', badge: 'badge-success' },
+    error: { label: 'Ошибка', badge: 'badge-danger' },
+};
+
+async function loadMeetings() {
+    const data = await API.get('/api/meetings/');
+    meetingsCache = data;
+    const tbody = document.getElementById('meetingsTable');
+    tbody.innerHTML = data.map(m => {
+        const ts = TRANSCRIPTION_STATUS[m.transcription_status] || TRANSCRIPTION_STATUS.pending;
+        const partNames = (m.participants || []).map(p => p.name || 'Участник').join(', ');
+        return `<tr>
+            <td>${new Date(m.meeting_date).toLocaleString('ru-RU')}</td>
+            <td><a href="#" onclick="openMeetingDetail(${m.id}); return false;"><strong>${esc(m.title)}</strong></a></td>
+            <td>${m.duration_minutes} мин</td>
+            <td>${esc(partNames) || '—'}</td>
+            <td><span class="badge ${ts.badge}">${ts.label}</span></td>
+            <td>
+                ${m.is_protocol_generated
+                    ? (m.is_protocol_transferred
+                        ? '<span class="badge badge-success">Перенесён</span>'
+                        : '<span class="badge badge-info">Сгенерирован</span>')
+                    : '<span class="badge badge-neutral">Нет</span>'}
+            </td>
+            <td>
+                <button class="btn btn-primary btn-sm" onclick="openMeetingDetail(${m.id})">&#9998; Открыть</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteMeeting(${m.id})">&#10005;</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+async function saveMeeting() {
+    await API.post('/api/meetings/', {
+        title: document.getElementById('mtTitle').value,
+        description: document.getElementById('mtDescription').value,
+        meeting_date: document.getElementById('mtDate').value,
+        duration_minutes: parseInt(document.getElementById('mtDuration').value) || 60,
+        location: document.getElementById('mtLocation').value,
+        speaker_count: parseInt(document.getElementById('mtSpeakerCount').value) || 2,
+    });
+    hideModal('meetingModal');
+    loadMeetings();
+}
+
+async function deleteMeeting(id) {
+    if (!confirm('Удалить мероприятие?')) return;
+    await API.del(`/api/meetings/${id}`);
+    loadMeetings();
+}
+
+async function openMeetingDetail(id) {
+    const m = await API.get(`/api/meetings/${id}`);
+    document.getElementById('meetingDetailTitle').textContent = m.title;
+
+    const ts = TRANSCRIPTION_STATUS[m.transcription_status] || TRANSCRIPTION_STATUS.pending;
+    const partList = (m.participants || []).map(p =>
+        `<tr><td>${esc(p.name)}</td><td>${esc(p.role)}</td><td>${esc(p.speaker_label)}</td>
+         <td><button class="btn btn-danger btn-sm" onclick="removeParticipant(${m.id},${p.id})">&#10005;</button></td></tr>`
+    ).join('');
+
+    const sentimentLabel = m.ai_sentiment === 'positive' ? 'Позитивный'
+        : m.ai_sentiment === 'negative' ? 'Негативный' : 'Нейтральный';
+    const sentimentBadge = m.ai_sentiment === 'positive' ? 'badge-success'
+        : m.ai_sentiment === 'negative' ? 'badge-danger' : 'badge-warning';
+
+    let html = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div><strong>Дата:</strong> ${new Date(m.meeting_date).toLocaleString('ru-RU')}</div>
+        <div><strong>Длительность:</strong> ${m.duration_minutes} мин</div>
+        <div><strong>Место:</strong> ${esc(m.location) || '—'}</div>
+        <div><strong>Спикеров:</strong> ${m.speaker_count}</div>
+    </div>
+    ${m.description ? `<div class="card" style="margin-bottom:12px;"><strong>Описание:</strong> ${esc(m.description)}</div>` : ''}
+
+    <!-- Participants -->
+    <div class="card" style="margin-bottom:12px;">
+        <h4>Участники и роли</h4>
+        <table><thead><tr><th>Имя</th><th>Роль</th><th>Спикер</th><th></th></tr></thead>
+        <tbody>${partList || '<tr><td colspan="4">Нет участников</td></tr>'}</tbody></table>
+        <div style="margin-top:8px;display:flex;gap:8px;">
+            <input id="addPartName" placeholder="Имя" style="padding:6px;border:1px solid #ddd;border-radius:6px;">
+            <select id="addPartRole" style="padding:6px;border:1px solid #ddd;border-radius:6px;">
+                <option>Участник</option><option>Председатель</option><option>Секретарь</option><option>Докладчик</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="addParticipant(${m.id})">+ Добавить</button>
+        </div>
+    </div>
+
+    <!-- 5-step flow -->
+    <div class="card" style="margin-bottom:12px;">
+        <h4>5 шагов к протоколу</h4>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+
+            <!-- Step 1: Upload audio -->
+            <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#f8f9fa;border-radius:8px;">
+                <span class="badge badge-info" style="min-width:24px;text-align:center;">1</span>
+                <div style="flex:1;">
+                    <strong>Прикрепить аудиофайл</strong>
+                    ${m.audio_file_path ? '<span class="badge badge-success" style="margin-left:8px;">Загружен</span>' : ''}
+                </div>
+                <div>
+                    <input type="file" id="audioFile_${m.id}" accept=".mp3,.wav,.ogg,.m4a,.flac,.webm,.mp4,.wma" style="font-size:0.8rem;">
+                    <button class="btn btn-primary btn-sm" onclick="uploadAudio(${m.id})">Загрузить</button>
+                </div>
+            </div>
+
+            <!-- Step 1b: Or upload transcript -->
+            <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#f8f9fa;border-radius:8px;">
+                <span class="badge badge-neutral" style="min-width:24px;text-align:center;">1b</span>
+                <div style="flex:1;"><strong>Или загрузить текстовый транскрипт</strong></div>
+                <div>
+                    <input type="file" id="txtFile_${m.id}" accept=".txt" style="font-size:0.8rem;">
+                    <button class="btn btn-outline btn-sm" onclick="uploadMeetingTranscript(${m.id})">Загрузить .txt</button>
+                </div>
+            </div>
+
+            <!-- Step 2: Transcribe -->
+            <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#f8f9fa;border-radius:8px;">
+                <span class="badge badge-info" style="min-width:24px;text-align:center;">2</span>
+                <div style="flex:1;">
+                    <strong>Запустить расшифровку (Whisper)</strong>
+                    <span class="badge ${ts.badge}" style="margin-left:8px;">${ts.label}</span>
+                </div>
+                <button class="btn btn-primary btn-sm" id="btnTranscribe_${m.id}"
+                    onclick="transcribeMeeting(${m.id}, this)"
+                    ${!m.audio_file_path || m.transcription_status === 'done' ? 'disabled' : ''}>
+                    Запустить сервис
+                </button>
+            </div>
+
+            <!-- Step 3: Diarize speakers -->
+            <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#f8f9fa;border-radius:8px;">
+                <span class="badge badge-info" style="min-width:24px;text-align:center;">3</span>
+                <div style="flex:1;"><strong>Определить спикеров (ИИ)</strong></div>
+                <button class="btn btn-primary btn-sm" onclick="diarizeMeeting(${m.id}, this)"
+                    ${!m.transcript ? 'disabled' : ''}>
+                    Диаризация
+                </button>
+            </div>
+
+            <!-- Step 4: Generate protocol -->
+            <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#f8f9fa;border-radius:8px;">
+                <span class="badge badge-info" style="min-width:24px;text-align:center;">4</span>
+                <div style="flex:1;">
+                    <strong>Получить автопротокол (ИИ)</strong>
+                    ${m.is_protocol_generated ? '<span class="badge badge-success" style="margin-left:8px;">Готов</span>' : ''}
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="generateProtocol(${m.id}, this)"
+                    ${!m.transcript ? 'disabled' : ''}>
+                    Получить автопротокол
+                </button>
+            </div>
+
+            <!-- Step 5: Transfer & create tasks -->
+            <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#f8f9fa;border-radius:8px;">
+                <span class="badge badge-info" style="min-width:24px;text-align:center;">5</span>
+                <div style="flex:1;">
+                    <strong>Перенести протокол и поставить задачи</strong>
+                    ${m.is_protocol_transferred ? '<span class="badge badge-success" style="margin-left:8px;">Перенесён</span>' : ''}
+                </div>
+                <button class="btn btn-success btn-sm" onclick="transferProtocol(${m.id}, this)"
+                    ${!m.is_protocol_generated || m.is_protocol_transferred ? 'disabled' : ''}>
+                    Перенести протокол
+                </button>
+            </div>
+        </div>
+    </div>`;
+
+    // Show stenogram/transcript if available
+    if (m.stenogram || m.transcript) {
+        html += `<div class="card" style="margin-bottom:12px;">
+            <h4>Стенограмма</h4>
+            <pre style="white-space:pre-wrap;font-family:inherit;max-height:300px;overflow-y:auto;font-size:0.85rem;background:#f8f9fa;padding:12px;border-radius:8px;">${esc(m.stenogram || m.transcript)}</pre>
+        </div>`;
+    }
+
+    // Show AI protocol if generated
+    if (m.is_protocol_generated) {
+        html += `<div class="card analysis-result" style="margin-bottom:12px;">
+            <h4>Автопротокол (ИИ)</h4>
+            <div class="analysis-section">
+                <strong>Резюме</strong>
+                <p>${esc(m.ai_summary)}</p>
+            </div>
+            <div class="analysis-section">
+                <strong>Ключевые темы</strong>
+                <p>${esc(m.ai_key_topics)}</p>
+            </div>
+            <div class="analysis-section">
+                <strong>Решения</strong>
+                <pre style="white-space:pre-wrap;font-family:inherit;">${esc(m.ai_decisions)}</pre>
+            </div>
+            <div class="analysis-section">
+                <strong>Задачи</strong>
+                <pre style="white-space:pre-wrap;font-family:inherit;">${esc(m.ai_action_items)}</pre>
+            </div>
+            <div class="analysis-section">
+                <strong>Тон встречи</strong>
+                <span class="badge ${sentimentBadge}">${sentimentLabel}</span>
+            </div>
+            <div class="analysis-section" style="margin-top:12px;">
+                <strong>Полный текст протокола</strong>
+                <pre style="white-space:pre-wrap;font-family:inherit;max-height:400px;overflow-y:auto;background:#fff;padding:12px;border-radius:8px;border:1px solid #ddd;">${esc(m.ai_protocol)}</pre>
+            </div>
+        </div>`;
+    }
+
+    // Show final protocol if transferred
+    if (m.is_protocol_transferred && m.final_protocol) {
+        html += `<div class="card" style="margin-bottom:12px;border:2px solid var(--success);">
+            <h4 style="color:var(--success);">Итоговый протокол</h4>
+            <pre style="white-space:pre-wrap;font-family:inherit;max-height:400px;overflow-y:auto;">${esc(m.final_protocol)}</pre>
+        </div>`;
+    }
+
+    document.getElementById('meetingDetailContent').innerHTML = html;
+    showModal('meetingDetailModal');
+}
+
+async function uploadAudio(meetingId) {
+    const input = document.getElementById(`audioFile_${meetingId}`);
+    if (!input.files.length) return alert('Выберите аудиофайл');
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    formData.append('speaker_count', '2');
+    const res = await fetch(`/api/meetings/${meetingId}/upload-audio`, { method: 'POST', body: formData });
+    const result = await res.json();
+    if (res.ok) {
+        alert(`Файл загружен (${result.size_mb} МБ)`);
+        openMeetingDetail(meetingId);
+    } else {
+        alert(result.detail || 'Ошибка загрузки');
+    }
+}
+
+async function uploadMeetingTranscript(meetingId) {
+    const input = document.getElementById(`txtFile_${meetingId}`);
+    if (!input.files.length) return alert('Выберите текстовый файл');
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    await fetch(`/api/meetings/${meetingId}/upload-transcript`, { method: 'POST', body: formData });
+    openMeetingDetail(meetingId);
+}
+
+async function transcribeMeeting(meetingId, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Расшифровка...';
+    try {
+        const res = await fetch(`/api/meetings/${meetingId}/transcribe`, { method: 'POST' });
+        const result = await res.json();
+        if (res.ok) {
+            alert('Расшифровка завершена!');
+        } else {
+            alert(result.detail || 'Ошибка расшифровки');
+        }
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+    }
+    openMeetingDetail(meetingId);
+}
+
+async function diarizeMeeting(meetingId, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Определение спикеров...';
+    try {
+        await fetch(`/api/meetings/${meetingId}/diarize`, { method: 'POST' });
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+    }
+    openMeetingDetail(meetingId);
+}
+
+async function generateProtocol(meetingId, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Генерация протокола...';
+    try {
+        await fetch(`/api/meetings/${meetingId}/generate-protocol`, { method: 'POST' });
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+    }
+    openMeetingDetail(meetingId);
+}
+
+async function transferProtocol(meetingId, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Перенос...';
+    try {
+        await fetch(`/api/meetings/${meetingId}/transfer-protocol`, { method: 'POST' });
+        alert('Протокол перенесён, задачи созданы!');
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+    }
+    openMeetingDetail(meetingId);
+    loadTasks();
+}
+
+async function addParticipant(meetingId) {
+    const name = document.getElementById('addPartName').value;
+    if (!name) return alert('Введите имя');
+    const role = document.getElementById('addPartRole').value;
+    await API.post(`/api/meetings/${meetingId}/participants`, { name, role });
+    openMeetingDetail(meetingId);
+}
+
+async function removeParticipant(meetingId, participantId) {
+    await API.del(`/api/meetings/${meetingId}/participants/${participantId}`);
+    openMeetingDetail(meetingId);
+}
+
+// ==================== Tasks ====================
+const TASK_STATUS_LABELS = { new: 'Новая', in_progress: 'В работе', done: 'Выполнена', cancelled: 'Отменена' };
+const TASK_STATUS_BADGES = { new: 'badge-info', in_progress: 'badge-warning', done: 'badge-success', cancelled: 'badge-neutral' };
+const PRIORITY_LABELS = { low: 'Низкий', medium: 'Средний', high: 'Высокий', critical: 'Критический' };
+const PRIORITY_BADGES = { low: 'badge-neutral', medium: 'badge-info', high: 'badge-warning', critical: 'badge-danger' };
+
+async function loadTasks() {
+    let url = '/api/tasks/?';
+    const status = document.getElementById('taskFilterStatus')?.value;
+    if (status) url += `status=${status}&`;
+
+    const data = await API.get(url);
+    const tbody = document.getElementById('tasksTable');
+    tbody.innerHTML = data.map(t => {
+        const meeting = meetingsCache.find(m => m.id === t.meeting_id);
+        const assignee = t.assignee_name || (employeesCache.find(e => e.id === t.assignee_id)?.full_name) || '—';
+        const isOverdue = t.due_date && new Date(t.due_date) < new Date() && t.status !== 'done' && t.status !== 'cancelled';
+        return `<tr style="${isOverdue ? 'background:#fff5f5;' : ''}">
+            <td>${esc(t.title)}</td>
+            <td>${meeting ? esc(meeting.title) : (t.meeting_id || '—')}</td>
+            <td>${esc(assignee)}</td>
+            <td><span class="badge ${PRIORITY_BADGES[t.priority] || 'badge-neutral'}">${PRIORITY_LABELS[t.priority] || t.priority}</span></td>
+            <td>${t.due_date || '—'} ${isOverdue ? '<span class="badge badge-danger">Просрочена</span>' : ''}</td>
+            <td><span class="badge ${TASK_STATUS_BADGES[t.status] || 'badge-neutral'}">${TASK_STATUS_LABELS[t.status] || t.status}</span></td>
+            <td>
+                ${t.status === 'new' ? `<button class="btn btn-warning btn-sm" onclick="updateTaskStatus(${t.id},'in_progress')">В работу</button>` : ''}
+                ${t.status === 'in_progress' ? `<button class="btn btn-success btn-sm" onclick="updateTaskStatus(${t.id},'done')">&#10003; Готово</button>` : ''}
+                <button class="btn btn-danger btn-sm" onclick="deleteTask(${t.id})">&#10005;</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+async function saveTask() {
+    const assigneeId = document.getElementById('taskAssignee').value;
+    const assigneeName = assigneeId ?
+        (employeesCache.find(e => e.id === parseInt(assigneeId))?.full_name || '') : '';
+    await API.post('/api/tasks/', {
+        title: document.getElementById('taskTitle').value,
+        description: document.getElementById('taskDescription').value,
+        assignee_id: assigneeId ? parseInt(assigneeId) : null,
+        assignee_name: assigneeName,
+        priority: document.getElementById('taskPriority').value,
+        due_date: document.getElementById('taskDueDate').value || null,
+    });
+    hideModal('taskModal');
+    loadTasks();
+}
+
+async function updateTaskStatus(id, status) {
+    await API.put(`/api/tasks/${id}`, { status });
+    loadTasks();
+}
+
+async function deleteTask(id) {
+    if (!confirm('Удалить задачу?')) return;
+    await API.del(`/api/tasks/${id}`);
+    loadTasks();
+}
+
 // ==================== Calls ====================
 async function loadCalls() {
     const data = await API.get('/api/calls/');
@@ -301,10 +683,10 @@ async function showAnalysis(id) {
     const call = await API.get(`/api/calls/${id}`);
     document.getElementById('analysisTitle').textContent = `ИИ-анализ: ${call.title}`;
 
-    const sentimentClass = call.ai_sentiment === 'positive' ? 'sentiment-positive'
-        : call.ai_sentiment === 'negative' ? 'sentiment-negative' : 'sentiment-neutral';
     const sentimentLabel = call.ai_sentiment === 'positive' ? 'Позитивный'
         : call.ai_sentiment === 'negative' ? 'Негативный' : 'Нейтральный';
+    const sentimentBadge = call.ai_sentiment === 'positive' ? 'badge-success'
+        : call.ai_sentiment === 'negative' ? 'badge-danger' : 'badge-warning';
 
     document.getElementById('analysisContent').innerHTML = `
         <div class="analysis-result">
@@ -326,9 +708,7 @@ async function showAnalysis(id) {
             </div>
             <div class="analysis-section">
                 <strong>Тон встречи</strong>
-                <span class="badge ${sentimentClass === 'sentiment-positive' ? 'badge-success' : sentimentClass === 'sentiment-negative' ? 'badge-danger' : 'badge-warning'}">
-                    ${sentimentLabel}
-                </span>
+                <span class="badge ${sentimentBadge}">${sentimentLabel}</span>
             </div>
         </div>
     `;
@@ -368,7 +748,7 @@ async function loadCalendar() {
     const grid = document.getElementById('calendarGrid');
 
     const daysInMonth = new Date(calYear, calMonth, 0).getDate();
-    const firstDay = (new Date(calYear, calMonth - 1, 1).getDay() + 6) % 7; // Monday = 0
+    const firstDay = (new Date(calYear, calMonth - 1, 1).getDay() + 6) % 7;
 
     const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 

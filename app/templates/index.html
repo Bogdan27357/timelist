@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Таймлист — Учёт рабочего времени</title>
+    <title>Таймлист — Учёт рабочего времени и ИИ-анализ</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
 <nav class="sidebar">
     <div class="sidebar-header">
         <h2>Таймлист</h2>
-        <small>Учёт времени и аналитика</small>
+        <small>Учёт времени и ИИ-аналитика</small>
     </div>
     <div id="ollamaStatus" class="ollama-status ollama-offline">
         <span class="dot">&#9679;</span> <span class="nav-text">Ollama: проверка...</span>
@@ -28,6 +28,12 @@
     </div>
     <div class="nav-item" data-section="absences">
         <span class="icon">&#9992;</span> <span class="nav-text">Отсутствия</span>
+    </div>
+    <div class="nav-item" data-section="meetings">
+        <span class="icon">&#9881;</span> <span class="nav-text">Мероприятия</span>
+    </div>
+    <div class="nav-item" data-section="tasks">
+        <span class="icon">&#9745;</span> <span class="nav-text">Задачи</span>
     </div>
     <div class="nav-item" data-section="calls">
         <span class="icon">&#9742;</span> <span class="nav-text">Созвоны</span>
@@ -63,12 +69,16 @@
             <div class="stat-value" id="statSick">-</div>
         </div>
         <div class="stat-card info">
-            <div class="stat-label">Созвонов за месяц</div>
-            <div class="stat-value" id="statCalls">-</div>
+            <div class="stat-label">Мероприятий</div>
+            <div class="stat-value" id="statMeetings">-</div>
         </div>
         <div class="stat-card success">
-            <div class="stat-label">Проанализировано ИИ</div>
-            <div class="stat-value" id="statAnalyzed">-</div>
+            <div class="stat-label">Задач на контроле</div>
+            <div class="stat-value" id="statTasks">-</div>
+        </div>
+        <div class="stat-card danger">
+            <div class="stat-label">Просроченных задач</div>
+            <div class="stat-value" id="statOverdue">-</div>
         </div>
         <div class="stat-card primary">
             <div class="stat-label">Средн. часов сегодня</div>
@@ -136,6 +146,50 @@
     </div>
 </div>
 
+<!-- Meetings (main 1C Timelist flow) -->
+<div id="meetings" class="section">
+    <div class="page-header">
+        <h1>Мероприятия / Совещания</h1>
+        <button class="btn btn-primary" onclick="showModal('meetingModal')">+ Новое мероприятие</button>
+    </div>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Дата</th><th>Название</th><th>Длительность</th><th>Участники</th><th>Расшифровка</th><th>Протокол</th><th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="meetingsTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Tasks -->
+<div id="tasks" class="section">
+    <div class="page-header">
+        <h1>Задачи на контроле</h1>
+        <button class="btn btn-primary" onclick="showModal('taskModal')">+ Задача</button>
+    </div>
+    <div class="card" style="margin-bottom:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <label>Статус: <select id="taskFilterStatus" onchange="loadTasks()">
+            <option value="">Все</option>
+            <option value="new">Новые</option>
+            <option value="in_progress">В работе</option>
+            <option value="done">Выполнены</option>
+        </select></label>
+    </div>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Задача</th><th>Мероприятие</th><th>Ответственный</th><th>Приоритет</th><th>Срок</th><th>Статус</th><th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="tasksTable"></tbody>
+        </table>
+    </div>
+</div>
+
 <!-- Calls -->
 <div id="calls" class="section">
     <div class="page-header">
@@ -172,7 +226,8 @@
 
 </main>
 
-<!-- Modals -->
+<!-- ============ MODALS ============ -->
+
 <!-- Employee Modal -->
 <div class="modal-overlay" id="employeeModal">
     <div class="modal">
@@ -232,6 +287,57 @@
     </div>
 </div>
 
+<!-- Meeting Modal -->
+<div class="modal-overlay" id="meetingModal">
+    <div class="modal">
+        <h3>Новое мероприятие</h3>
+        <div class="form-group"><label>Название</label><input id="mtTitle" required></div>
+        <div class="form-group"><label>Описание</label><textarea id="mtDescription" rows="2"></textarea></div>
+        <div class="form-group"><label>Дата и время</label><input id="mtDate" type="datetime-local" required></div>
+        <div class="form-group"><label>Длительность (мин.)</label><input id="mtDuration" type="number" value="60"></div>
+        <div class="form-group"><label>Место</label><input id="mtLocation" placeholder="Переговорная / Zoom / Teams"></div>
+        <div class="form-group"><label>Кол-во спикеров</label><input id="mtSpeakerCount" type="number" value="2" min="1" max="20"></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('meetingModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveMeeting()">Создать</button>
+        </div>
+    </div>
+</div>
+
+<!-- Meeting Detail Modal -->
+<div class="modal-overlay" id="meetingDetailModal">
+    <div class="modal" style="max-width:850px;">
+        <h3 id="meetingDetailTitle">Карточка мероприятия</h3>
+        <div id="meetingDetailContent"></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('meetingDetailModal')">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<!-- Task Modal -->
+<div class="modal-overlay" id="taskModal">
+    <div class="modal">
+        <h3>Новая задача</h3>
+        <div class="form-group"><label>Задача</label><input id="taskTitle" required></div>
+        <div class="form-group"><label>Описание</label><textarea id="taskDescription" rows="2"></textarea></div>
+        <div class="form-group"><label>Ответственный</label><select id="taskAssignee"><option value="">Не назначен</option></select></div>
+        <div class="form-group"><label>Приоритет</label>
+            <select id="taskPriority">
+                <option value="low">Низкий</option>
+                <option value="medium" selected>Средний</option>
+                <option value="high">Высокий</option>
+                <option value="critical">Критический</option>
+            </select>
+        </div>
+        <div class="form-group"><label>Срок</label><input id="taskDueDate" type="date"></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="hideModal('taskModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveTask()">Создать</button>
+        </div>
+    </div>
+</div>
+
 <!-- Call Modal -->
 <div class="modal-overlay" id="callModal">
     <div class="modal">
@@ -266,7 +372,7 @@
 <!-- Analysis Modal -->
 <div class="modal-overlay" id="analysisModal">
     <div class="modal" style="max-width:700px;">
-        <h3 id="analysisTitle">ИИ-анализ созвона</h3>
+        <h3 id="analysisTitle">ИИ-анализ</h3>
         <div id="analysisContent"></div>
         <div class="form-actions">
             <button class="btn btn-outline" onclick="hideModal('analysisModal')">Закрыть</button>

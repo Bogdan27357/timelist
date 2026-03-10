@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 # --- Employee ---
@@ -96,6 +96,112 @@ class AbsenceOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Meeting Participant ---
+class MeetingParticipantCreate(BaseModel):
+    employee_id: Optional[int] = None
+    name: str = ""
+    role: str = "Участник"
+    speaker_label: str = ""
+
+
+class MeetingParticipantOut(BaseModel):
+    id: int
+    meeting_id: int
+    employee_id: Optional[int]
+    name: str
+    role: str
+    speaker_label: str
+
+    model_config = {"from_attributes": True}
+
+
+# --- Meeting ---
+class MeetingCreate(BaseModel):
+    title: str
+    description: str = ""
+    meeting_date: datetime
+    duration_minutes: int = 60
+    location: str = ""
+    organizer_id: Optional[int] = None
+    speaker_count: int = 2
+    participants: list[MeetingParticipantCreate] = []
+
+
+class MeetingUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    meeting_date: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    location: Optional[str] = None
+    speaker_count: Optional[int] = None
+    final_protocol: Optional[str] = None
+
+
+class MeetingOut(BaseModel):
+    id: int
+    title: str
+    description: str
+    meeting_date: datetime
+    duration_minutes: int
+    location: str
+    organizer_id: Optional[int]
+    audio_file_path: str
+    speaker_count: int
+    transcription_status: str
+    transcript: str
+    stenogram: str
+    ai_protocol: str
+    ai_summary: str
+    ai_action_items: str
+    ai_key_topics: str
+    ai_decisions: str
+    ai_sentiment: str
+    is_protocol_generated: bool
+    is_protocol_transferred: bool
+    final_protocol: str
+    created_at: datetime
+    participants: list[MeetingParticipantOut] = []
+
+    model_config = {"from_attributes": True}
+
+
+# --- Task ---
+class TaskCreate(BaseModel):
+    meeting_id: Optional[int] = None
+    title: str
+    description: str = ""
+    assignee_id: Optional[int] = None
+    assignee_name: str = ""
+    priority: str = "medium"
+    due_date: Optional[date] = None
+
+
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[date] = None
+
+
+class TaskOut(BaseModel):
+    id: int
+    meeting_id: Optional[int]
+    title: str
+    description: str
+    assignee_id: Optional[int]
+    assignee_name: str
+    status: str
+    priority: str
+    due_date: Optional[date]
+    completed_at: Optional[datetime]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Call ---
 class CallCreate(BaseModel):
     employee_id: Optional[int] = None
@@ -134,3 +240,6 @@ class DashboardStats(BaseModel):
     total_calls_this_month: int
     analyzed_calls: int
     avg_hours_today: float
+    total_meetings: int
+    total_tasks: int
+    tasks_overdue: int

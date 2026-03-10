@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.database import get_db
-from app.models import Employee, TimesheetEntry, Absence, Call, AbsenceType, AbsenceStatus
+from app.models import Employee, TimesheetEntry, Absence, Call, Meeting, Task, AbsenceType, AbsenceStatus, TaskStatus
 from app.schemas import DashboardStats
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -49,6 +49,17 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         TimesheetEntry.date == today
     ).scalar()
 
+    total_meetings = db.query(Meeting).count()
+
+    total_tasks = db.query(Task).filter(
+        Task.status != TaskStatus.CANCELLED,
+    ).count()
+
+    tasks_overdue = db.query(Task).filter(
+        Task.status.in_([TaskStatus.NEW, TaskStatus.IN_PROGRESS]),
+        Task.due_date < today,
+    ).count()
+
     return DashboardStats(
         total_employees=total_employees,
         active_today=active_today,
@@ -57,6 +68,9 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         total_calls_this_month=total_calls,
         analyzed_calls=analyzed_calls,
         avg_hours_today=round(avg_hours_result or 0, 2),
+        total_meetings=total_meetings,
+        total_tasks=total_tasks,
+        tasks_overdue=tasks_overdue,
     )
 
 
