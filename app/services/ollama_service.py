@@ -95,8 +95,8 @@ async def generate_protocol(
     meeting_date: str = "",
 ) -> dict:
     """Generate a formal meeting protocol from transcript using Ollama."""
-    prompt = f"""Ты — ИИ-ассистент, создающий официальные протоколы совещаний.
-На основе стенограммы/транскрипта создай полный протокол мероприятия.
+    prompt = f"""Ты — ИИ-ассистент, создающий официальные протоколы совещаний в стиле 1С:Документооборот.
+На основе стенограммы создай полный, красиво оформленный протокол мероприятия.
 
 Название мероприятия: {title}
 Дата: {meeting_date}
@@ -109,30 +109,73 @@ async def generate_protocol(
 
 Верни ответ СТРОГО в формате JSON (без markdown, без ```):
 {{
-    "protocol": "Полный текст протокола в формате:\\n\\nПРОТОКОЛ\\nМероприятие: ...\\nДата: ...\\nПрисутствовали: ...\\n\\nПОВЕСТКА ДНЯ:\\n1. ...\\n\\nХОД СОВЕЩАНИЯ:\\n...\\n\\nРЕШЕНИЯ:\\n1. ...\\n\\nЗАДАЧИ:\\n1. задача — ответственный — срок",
-    "summary": "Краткое резюме (2-3 предложения)",
-    "action_items": [
-        {{"task": "описание задачи", "assignee": "ответственный", "deadline": "срок или пусто"}}
+    "protocol_header": {{
+        "title": "Название мероприятия",
+        "number": "Номер протокола (придумай)",
+        "date": "{meeting_date}",
+        "location": "Место проведения",
+        "chairman": "ФИО председателя (определи из контекста или укажи первого участника)",
+        "secretary": "ФИО секретаря (определи из контекста или укажи)",
+        "attendees": ["ФИО — должность/роль"]
+    }},
+    "agenda": ["Пункт повестки дня 1", "Пункт повестки дня 2"],
+    "discussion": [
+        {{
+            "topic": "Тема обсуждения",
+            "speaker": "Докладчик",
+            "summary": "Краткое содержание выступления/обсуждения (2-4 предложения)"
+        }}
     ],
+    "decisions": [
+        {{
+            "number": 1,
+            "text": "Формулировка решения",
+            "responsible": "Ответственный",
+            "deadline": "Срок исполнения"
+        }}
+    ],
+    "action_items": [
+        {{
+            "task": "Описание задачи",
+            "assignee": "Ответственный исполнитель",
+            "deadline": "Срок"
+        }}
+    ],
+    "summary": "Краткое резюме совещания (2-3 предложения)",
     "key_topics": "ключевые темы через запятую",
-    "decisions": "- решение 1\\n- решение 2",
     "sentiment": "positive/neutral/negative"
 }}"""
 
     try:
-        text = await _ollama_generate(prompt, max_tokens=4000)
+        text = await _ollama_generate(prompt, max_tokens=5000)
         parsed = _parse_json(text)
         if parsed:
+            # Build formatted protocol text from structured data
+            protocol_text = _build_protocol_text(parsed)
+            # Build decisions text
+            decisions_list = parsed.get("decisions", [])
+            if isinstance(decisions_list, list):
+                decisions_text = "\n".join(
+                    f"{d.get('number', i+1)}. {d.get('text', d) if isinstance(d, dict) else d}"
+                    + (f" — {d['responsible']}" if isinstance(d, dict) and d.get('responsible') else "")
+                    + (f" (срок: {d['deadline']})" if isinstance(d, dict) and d.get('deadline') else "")
+                    for i, d in enumerate(decisions_list)
+                )
+            else:
+                decisions_text = str(decisions_list)
+
             return {
-                "protocol": parsed.get("protocol", ""),
+                "protocol": protocol_text,
+                "protocol_data": parsed,
                 "summary": parsed.get("summary", ""),
                 "action_items": parsed.get("action_items", []),
                 "key_topics": parsed.get("key_topics", ""),
-                "decisions": parsed.get("decisions", ""),
+                "decisions": decisions_text,
                 "sentiment": parsed.get("sentiment", "neutral"),
             }
         return {
             "protocol": text,
+            "protocol_data": {},
             "summary": "",
             "action_items": [],
             "key_topics": "",
@@ -142,6 +185,7 @@ async def generate_protocol(
     except Exception as e:
         return {
             "protocol": f"Ошибка: {e}",
+            "protocol_data": {},
             "summary": "",
             "action_items": [],
             "key_topics": "",
@@ -151,22 +195,134 @@ async def generate_protocol(
         }
 
 
-async def identify_speakers(transcript: str, speaker_count: int = 2) -> str:
+def _build_protocol_text(data: dict) -> str:
+    """Build a beautifully formatted protocol text from structured JSON data."""
+    lines = []
+    header = data.get("protocol_header", {})
+
+    lines.append("=" * 60)
+    lines.append("ПРОТОКОЛ")
+    lines.append(f"совещания: {header.get('title', '')}")
+    if header.get("number"):
+        lines.append(f"N {header['number']}")
+    lines.append("=" * 60)
+    lines.append("")
+    lines.append(f"Дата: {header.get('date', '')}")
+    if header.get("location"):
+        lines.append(f"Место: {header['location']}")
+    lines.append("")
+    if header.get("chairman"):
+        lines.append(f"Председатель: {header['chairman']}")
+    if header.get("secretary"):
+        lines.append(f"Секретарь:    {header['secretary']}")
+    lines.append("")
+
+    attendees = header.get("attendees", [])
+    if attendees:
+        lines.append("Присутствовали:")
+        for a in attendees:
+            lines.append(f"  - {a}")
+        lines.append("")
+
+    # Agenda
+    agenda = data.get("agenda", [])
+    if agenda:
+        lines.append("-" * 40)
+        lines.append("ПОВЕСТКА ДНЯ:")
+        lines.append("-" * 40)
+        for i, item in enumerate(agenda, 1):
+            lines.append(f"  {i}. {item}")
+        lines.append("")
+
+    # Discussion
+    discussion = data.get("discussion", [])
+    if discussion:
+        lines.append("-" * 40)
+        lines.append("ХОД СОВЕЩАНИЯ:")
+        lines.append("-" * 40)
+        for item in discussion:
+            if isinstance(item, dict):
+                lines.append(f"\n  СЛУШАЛИ: {item.get('topic', '')}")
+                if item.get("speaker"):
+                    lines.append(f"  Докладчик: {item['speaker']}")
+                lines.append(f"  {item.get('summary', '')}")
+            else:
+                lines.append(f"  {item}")
+        lines.append("")
+
+    # Decisions
+    decisions = data.get("decisions", [])
+    if decisions:
+        lines.append("-" * 40)
+        lines.append("РЕШЕНИЯ:")
+        lines.append("-" * 40)
+        for d in decisions:
+            if isinstance(d, dict):
+                num = d.get("number", "")
+                lines.append(f"  {num}. {d.get('text', '')}")
+                if d.get("responsible"):
+                    lines.append(f"     Ответственный: {d['responsible']}")
+                if d.get("deadline"):
+                    lines.append(f"     Срок: {d['deadline']}")
+            else:
+                lines.append(f"  - {d}")
+        lines.append("")
+
+    # Action items
+    actions = data.get("action_items", [])
+    if actions:
+        lines.append("-" * 40)
+        lines.append("ЗАДАЧИ НА КОНТРОЛЕ:")
+        lines.append("-" * 40)
+        lines.append(f"  {'N':<4} {'Задача':<35} {'Ответственный':<20} {'Срок':<15}")
+        lines.append(f"  {'—'*4} {'—'*35} {'—'*20} {'—'*15}")
+        for i, a in enumerate(actions, 1):
+            if isinstance(a, dict):
+                lines.append(
+                    f"  {i:<4} {a.get('task', ''):<35} "
+                    f"{a.get('assignee', ''):<20} {a.get('deadline', ''):<15}"
+                )
+            else:
+                lines.append(f"  {i}. {a}")
+        lines.append("")
+
+    lines.append("=" * 60)
+    if header.get("chairman"):
+        lines.append(f"Председатель: _____________ / {header['chairman']} /")
+    if header.get("secretary"):
+        lines.append(f"Секретарь:    _____________ / {header['secretary']} /")
+    lines.append("=" * 60)
+
+    return "\n".join(lines)
+
+
+async def identify_speakers(
+    transcript: str,
+    speaker_count: int = 2,
+    participant_names: list[str] = None,
+) -> str:
     """Use Ollama to identify and label speakers in a transcript."""
-    prompt = f"""Ты — ИИ-ассистент для распознавания спикеров.
-Вот транскрипт совещания. В нём участвовали {speaker_count} спикера(ов).
-Попробуй определить, где говорит каждый спикер, и перепиши транскрипт,
-добавив метки спикеров (Спикер 1, Спикер 2 и т.д.).
+    names_hint = ""
+    if participant_names:
+        names_hint = f"\nИзвестные участники: {', '.join(participant_names)}. Используй их реальные имена вместо 'Спикер N', если можешь определить кто говорит."
+
+    prompt = f"""Ты — ИИ-ассистент для распознавания спикеров в стенограммах совещаний.
+В совещании участвовали {speaker_count} спикера(ов).{names_hint}
+
+Проанализируй транскрипт и перепиши его, разбив по репликам каждого спикера.
+Каждая реплика должна быть на новой строке в формате:
+
+[ЧЧ:ММ:СС] Имя_Спикера: текст реплики
+
+Если в транскрипте есть таймкоды — сохрани их. Если нет — не добавляй.
+Определи смену спикера по контексту: вопросы/ответы, смена темы, обращения по имени.
 
 Транскрипт:
 ---
 {transcript}
 ---
 
-Верни переписанный транскрипт с метками спикеров. Каждая реплика с новой строки:
-Спикер 1: текст
-Спикер 2: текст
-..."""
+Верни ТОЛЬКО переписанный транскрипт с метками спикеров (без пояснений)."""
 
     try:
         return await _ollama_generate(prompt, max_tokens=4000)

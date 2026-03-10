@@ -315,3 +315,140 @@ tr:hover { background: rgba(67, 97, 238, 0.03); }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Stenogram with speaker colors */
+.stenogram-container {
+    max-height: 400px;
+    overflow-y: auto;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    background: #fafafa;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.stenogram-line {
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+
+.stenogram-line .speaker-name {
+    font-weight: 700;
+    margin-right: 6px;
+}
+
+.stenogram-line .timecode {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-family: monospace;
+    margin-right: 8px;
+}
+
+.speaker-0 { background: #fff3cd; }
+.speaker-0 .speaker-name { color: #856404; }
+.speaker-1 { background: #cce5ff; }
+.speaker-1 .speaker-name { color: #004085; }
+.speaker-2 { background: #d4edda; }
+.speaker-2 .speaker-name { color: #155724; }
+.speaker-3 { background: #f8d7da; }
+.speaker-3 .speaker-name { color: #721c24; }
+.speaker-4 { background: #e2d5f1; }
+.speaker-4 .speaker-name { color: #432874; }
+.speaker-5 { background: #d1ecf1; }
+.speaker-5 .speaker-name { color: #0c5460; }
+
+/* Protocol document */
+.protocol-document {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 32px 40px;
+    font-family: "Times New Roman", Georgia, serif;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    max-height: 600px;
+    overflow-y: auto;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.protocol-document .protocol-title {
+    text-align: center;
+    font-size: 1.3rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+    border-bottom: 2px solid #333;
+    padding-bottom: 8px;
+}
+
+.protocol-document .protocol-subtitle {
+    text-align: center;
+    font-size: 1rem;
+    margin-bottom: 16px;
+    color: #444;
+}
+
+.protocol-document .protocol-meta {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 4px 12px;
+    margin-bottom: 16px;
+    font-size: 0.9rem;
+}
+
+.protocol-document .protocol-meta dt {
+    font-weight: 600;
+    color: #555;
+}
+
+.protocol-document .protocol-section-title {
+    font-weight: 700;
+    font-size: 1rem;
+    text-transform: uppercase;
+    border-bottom: 1px solid #999;
+    padding-bottom: 4px;
+    margin: 20px 0 10px;
+    color: #333;
+    letter-spacing: 1px;
+}
+
+.protocol-document .protocol-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+    font-size: 0.88rem;
+}
+
+.protocol-document .protocol-table th,
+.protocol-document .protocol-table td {
+    border: 1px solid #999;
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.protocol-document .protocol-table th {
+    background: #f0f0f0;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #333;
+}
+
+.protocol-document .protocol-signatures {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.protocol-document .signature-line {
+    border-top: 1px solid #333;
+    padding-top: 4px;
+    font-size: 0.85rem;
+    color: #555;
+    margin-top: 40px;
+}

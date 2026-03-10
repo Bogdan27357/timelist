@@ -168,7 +168,8 @@ async def diarize_meeting(meeting_id: int, db: Session = Depends(get_db)):
     if not meeting.transcript:
         raise HTTPException(status_code=400, detail="Сначала выполните расшифровку")
 
-    result = await identify_speakers(meeting.transcript, meeting.speaker_count)
+    participant_names = [p.name for p in meeting.participants if p.name]
+    result = await identify_speakers(meeting.transcript, meeting.speaker_count, participant_names)
     meeting.stenogram = result
     db.commit()
     return {"detail": "Диаризация завершена", "stenogram": result}

@@ -415,50 +415,42 @@ async function openMeetingDetail(id) {
         </div>
     </div>`;
 
-    // Show stenogram/transcript if available
+    // Show stenogram/transcript with speaker colors
     if (m.stenogram || m.transcript) {
+        const stenText = m.stenogram || m.transcript;
         html += `<div class="card" style="margin-bottom:12px;">
             <h4>Стенограмма</h4>
-            <pre style="white-space:pre-wrap;font-family:inherit;max-height:300px;overflow-y:auto;font-size:0.85rem;background:#f8f9fa;padding:12px;border-radius:8px;">${esc(m.stenogram || m.transcript)}</pre>
+            <div class="stenogram-container">${renderStenogram(stenText)}</div>
         </div>`;
     }
 
-    // Show AI protocol if generated
+    // Show AI protocol as formal document
     if (m.is_protocol_generated) {
-        html += `<div class="card analysis-result" style="margin-bottom:12px;">
-            <h4>Автопротокол (ИИ)</h4>
-            <div class="analysis-section">
-                <strong>Резюме</strong>
-                <p>${esc(m.ai_summary)}</p>
+        html += `<div class="card" style="margin-bottom:12px;">
+            <h4>Автопротокол (ИИ)
+                <span class="badge ${sentimentBadge}" style="margin-left:8px;font-size:0.7rem;">${sentimentLabel}</span>
+            </h4>
+            <div class="analysis-result" style="margin-bottom:16px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="analysis-section">
+                        <strong>Резюме</strong>
+                        <p>${esc(m.ai_summary)}</p>
+                    </div>
+                    <div class="analysis-section">
+                        <strong>Ключевые темы</strong>
+                        <p>${esc(m.ai_key_topics)}</p>
+                    </div>
+                </div>
             </div>
-            <div class="analysis-section">
-                <strong>Ключевые темы</strong>
-                <p>${esc(m.ai_key_topics)}</p>
-            </div>
-            <div class="analysis-section">
-                <strong>Решения</strong>
-                <pre style="white-space:pre-wrap;font-family:inherit;">${esc(m.ai_decisions)}</pre>
-            </div>
-            <div class="analysis-section">
-                <strong>Задачи</strong>
-                <pre style="white-space:pre-wrap;font-family:inherit;">${esc(m.ai_action_items)}</pre>
-            </div>
-            <div class="analysis-section">
-                <strong>Тон встречи</strong>
-                <span class="badge ${sentimentBadge}">${sentimentLabel}</span>
-            </div>
-            <div class="analysis-section" style="margin-top:12px;">
-                <strong>Полный текст протокола</strong>
-                <pre style="white-space:pre-wrap;font-family:inherit;max-height:400px;overflow-y:auto;background:#fff;padding:12px;border-radius:8px;border:1px solid #ddd;">${esc(m.ai_protocol)}</pre>
-            </div>
+            <div class="protocol-document">${renderProtocolDocument(m)}</div>
         </div>`;
     }
 
-    // Show final protocol if transferred
+    // Show final protocol as formal document
     if (m.is_protocol_transferred && m.final_protocol) {
         html += `<div class="card" style="margin-bottom:12px;border:2px solid var(--success);">
-            <h4 style="color:var(--success);">Итоговый протокол</h4>
-            <pre style="white-space:pre-wrap;font-family:inherit;max-height:400px;overflow-y:auto;">${esc(m.final_protocol)}</pre>
+            <h4 style="color:var(--success);">Итоговый протокол мероприятия</h4>
+            <div class="protocol-document">${renderProtocolDocument(m)}</div>
         </div>`;
     }
 
@@ -804,6 +796,164 @@ async function checkOllama() {
     } catch {
         // ignore
     }
+}
+
+// ==================== Stenogram & Protocol Renderers ====================
+
+function renderStenogram(text) {
+    if (!text) return '';
+    const lines = text.split('\n');
+    const speakerColors = {};
+    let colorIndex = 0;
+
+    return lines.map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return '';
+
+        // Try to detect speaker pattern: "[timecode] Speaker: text" or "Speaker: text"
+        let timecode = '';
+        let speaker = '';
+        let content = trimmed;
+
+        // Extract timecode [HH:MM:SS] or [MM:SS - MM:SS] or [MM:SS]
+        const tcMatch = trimmed.match(/^\[([^\]]+)\]\s*(.*)/);
+        if (tcMatch) {
+            timecode = tcMatch[1];
+            content = tcMatch[2];
+        }
+
+        // Extract speaker name: "Name:" pattern
+        const spMatch = content.match(/^([^:]{1,40}):\s*(.*)/);
+        if (spMatch && !spMatch[1].match(/^\d/)) {
+            speaker = spMatch[1].trim();
+            content = spMatch[2];
+        }
+
+        if (speaker) {
+            if (!(speaker in speakerColors)) {
+                speakerColors[speaker] = colorIndex % 6;
+                colorIndex++;
+            }
+            const cls = `speaker-${speakerColors[speaker]}`;
+            return `<div class="stenogram-line ${cls}">`
+                + (timecode ? `<span class="timecode">[${esc(timecode)}]</span>` : '')
+                + `<span class="speaker-name">${esc(speaker)}:</span>`
+                + `<span>${esc(content)}</span></div>`;
+        }
+
+        // No speaker detected — plain line
+        return `<div class="stenogram-line">`
+            + (timecode ? `<span class="timecode">[${esc(timecode)}]</span>` : '')
+            + `<span>${esc(content)}</span></div>`;
+    }).join('');
+}
+
+function renderProtocolDocument(m) {
+    const date = new Date(m.meeting_date).toLocaleDateString('ru-RU', {
+        year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const time = new Date(m.meeting_date).toLocaleTimeString('ru-RU', {
+        hour: '2-digit', minute: '2-digit'
+    });
+
+    const participants = (m.participants || []);
+    const chairman = participants.find(p => p.role === 'Председатель');
+    const secretary = participants.find(p => p.role === 'Секретарь');
+
+    // Parse decisions from ai_decisions
+    const decisionsLines = (m.ai_decisions || '').split('\n').filter(l => l.trim());
+    // Parse action items from ai_action_items
+    const actionLines = (m.ai_action_items || '').split('\n').filter(l => l.trim());
+
+    let html = `
+        <div class="protocol-title">ПРОТОКОЛ</div>
+        <div class="protocol-subtitle">${esc(m.title)}</div>
+
+        <dl class="protocol-meta">
+            <dt>Дата:</dt><dd>${date}, ${time}</dd>
+            ${m.location ? `<dt>Место:</dt><dd>${esc(m.location)}</dd>` : ''}
+            <dt>Председатель:</dt><dd>${chairman ? esc(chairman.name) : '—'}</dd>
+            <dt>Секретарь:</dt><dd>${secretary ? esc(secretary.name) : '—'}</dd>
+        </dl>
+    `;
+
+    // Attendees
+    if (participants.length) {
+        html += `<div class="protocol-section-title">Присутствовали</div>
+        <table class="protocol-table">
+            <thead><tr><th>N</th><th>ФИО</th><th>Роль</th></tr></thead>
+            <tbody>
+                ${participants.map((p, i) =>
+                    `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td>${esc(p.role)}</td></tr>`
+                ).join('')}
+            </tbody>
+        </table>`;
+    }
+
+    // Summary
+    if (m.ai_summary) {
+        html += `<div class="protocol-section-title">Краткое содержание</div>
+        <p>${esc(m.ai_summary)}</p>`;
+    }
+
+    // Key topics as agenda
+    if (m.ai_key_topics) {
+        const topics = m.ai_key_topics.split(',').map(t => t.trim()).filter(Boolean);
+        html += `<div class="protocol-section-title">Повестка дня</div>
+        <ol>${topics.map(t => `<li>${esc(t)}</li>`).join('')}</ol>`;
+    }
+
+    // Decisions
+    if (decisionsLines.length) {
+        html += `<div class="protocol-section-title">Решения</div>
+        <table class="protocol-table">
+            <thead><tr><th style="width:40px;">N</th><th>Решение</th></tr></thead>
+            <tbody>
+                ${decisionsLines.map((d, i) => {
+                    const clean = d.replace(/^\d+\.\s*/, '').replace(/^-\s*/, '');
+                    return `<tr><td>${i + 1}</td><td>${esc(clean)}</td></tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+    }
+
+    // Action items / Tasks
+    if (actionLines.length) {
+        html += `<div class="protocol-section-title">Задачи на контроле</div>
+        <table class="protocol-table">
+            <thead><tr><th style="width:40px;">N</th><th>Задача</th><th>Ответственный</th><th>Срок</th></tr></thead>
+            <tbody>
+                ${actionLines.map((line, i) => {
+                    const clean = line.replace(/^-\s*/, '');
+                    // Try to extract (assignee) [deadline]
+                    let task = clean, assignee = '', deadline = '';
+                    const assigneeMatch = clean.match(/\(([^)]+)\)/);
+                    if (assigneeMatch) {
+                        assignee = assigneeMatch[1];
+                        task = clean.replace(assigneeMatch[0], '').trim();
+                    }
+                    const deadlineMatch = clean.match(/\[([^\]]+)\]/);
+                    if (deadlineMatch) {
+                        deadline = deadlineMatch[1];
+                        task = task.replace(deadlineMatch[0], '').trim();
+                    }
+                    return `<tr><td>${i + 1}</td><td>${esc(task)}</td><td>${esc(assignee)}</td><td>${esc(deadline)}</td></tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+    }
+
+    // Signatures
+    html += `<div class="protocol-signatures">
+        <div>
+            <div class="signature-line">Председатель: ${chairman ? esc(chairman.name) : '________________'}</div>
+        </div>
+        <div>
+            <div class="signature-line">Секретарь: ${secretary ? esc(secretary.name) : '________________'}</div>
+        </div>
+    </div>`;
+
+    return html;
 }
 
 // ==================== Helpers ====================
